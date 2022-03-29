@@ -39,16 +39,16 @@ transformed_beta <- ilogit(beta) # site-level detection
 site_unit_covars <- data.frame(site_cov1 = rep(0:1, each = n_sites/2)) # could try updating with categorical covariate
 # just keep the one cov1 for now
 site_cov1 <- site_unit_covars$site_cov1
-a1_site_occ <- 2 # slope of site covariate on site-level occupancy effect
+a1_site_occ <- 1.5 # slope of site covariate on site-level occupancy effect
 # b1_site_occ <- 0.5 # slope of site covariate on site-level detection effect
 # continuous version
 # unit_covars <- data.frame(cov1 = rnorm(n_sites)) # this is a continuous covariate (like flower abundance e.g.)
 
 # (here the sites are considered exchangeable and considered to share a single parameter) that determine species occupancy and detectability.
 # if wanted to, could make sites non-exchangeable
-alpha_sigma <- .25 # small / negligible variation in site intercepts (occupancy)
-beta_sigma <- .25 # small / negligible variation in site intercepts (detection)
-rho_ab <- 0 # uncorrelated
+#alpha_sigma <- .25 # small / negligible variation in site intercepts (occupancy)
+#beta_sigma <- .25 # small / negligible variation in site intercepts (detection)
+#rho_ab <- 0 # uncorrelated
 
 ## Simulate site-level occupancy and detection if you want them to 
 # be non-equivalent
@@ -135,7 +135,7 @@ Z <- matrix(NA, nrow = n_species, ncol = n_sites)
 for(i in 1:n_species){ # loop across species
   for(j in 1:n_sites){ # loop across sites
     Z[i, j] <- rbinom(1, 1, ilogit((uv[i, 1] + a1_species_occ * species_cov1[i]) + 
-                                     (ab[j, 1] + a1_site_occ * site_cov1[j]))) # 
+                                     (alpha + a1_site_occ * site_cov1[j]))) # 
     # Z[i, j] <- rbinom(1, 1, ilogit(uv_filtered[i,1] + (ab[j,1]))) 
     # simulate occupancy states
     # for species i at site j, draw occupancy from a binomial dist with prob 
@@ -149,7 +149,7 @@ det_data_3D <- array(NA, c(n_species, n_sites, n_surveys))
 for(i in 1:n_species){ # loop across available species
   for(j in 1:n_sites){ # loop across sites
     for(k in 1:n_surveys){ 
-      det_data_3D[i, j, k] <- Z[i, j] * rbinom(1, 1, ilogit(uv[i, 2] + ab[j, 2])) 
+      det_data_3D[i, j, k] <- Z[i, j] * rbinom(1, 1, ilogit(uv[i, 2] + beta)) 
       # det_data_3D[i, j, k] <- Z[i, j] * rbinom(1, 1, ilogit(uv_filtered[i,2] + ab[j,2])) 
     } # multiply by the occupancy state so that you can never detect species
     # if it is not present at the site
@@ -212,18 +212,18 @@ site_cov1 <- site_cov1
 my_dat <- c("X", "N", "J", "K", "species_cov1", "site_cov1")
 param_names <- c("a1_species_occ",
                 "a1_site_occ",
-                "var site occ", "var site det", "rho_ab",
+                "alpha", "beta",
                 "var sp occ", "var sp det", "rho_uv")
 parameters <- c(a1_species_occ,
                 a1_site_occ,
-                alpha_sigma, beta_sigma, rho_ab_simmed,
+                alpha, beta,
                 sigma_u, sigma_v, rho_uv_simmed)
 targets <- as.data.frame(cbind(param_names, parameters))
 
 stan_model <- stan_model("./multispecies_occupancy_with_covariate_species_and_site.stan")
 
 # keep iter and chains small just for purposes of making sure the model runs
-n_iter <- 12000
+n_iter <- 10000
 n_chains <- 4
 n_cores <- 4
 sim_fit <- sampling(stan_model, data = my_dat, 
@@ -234,7 +234,7 @@ sim_fit <- sampling(stan_model, data = my_dat,
 options(width="120")
 print(sim_fit, c("a1_species_occ",
                   "a1_site_occ",
-                  "sigma_ab", "rho_ab",
+                  "alpha", "beta",
                   "sigma_uv", "rho_uv", 
                   "lp__"))
 #"uv[1,1]", "uv[1,2]", "uv[25,1]", "uv[25,2]"))
@@ -253,9 +253,9 @@ launch_shinystan(sim_fit)
 traceplot(sim_fit,
           c("a1_species_occ",
             "a1_site_occ",
-            "sigma_ab", "rho_ab",
+            "alpha", "beta",
             "sigma_uv", "rho_uv", 
-            "uv[1,1]", "uv[1,2]", "uv[60,1]", "uv[60,2]",
+            "uv[20,1]", "uv[20,2]", "uv[53,1]", "uv[53,2]",
             "lp__"),
           inc_warmup=FALSE) +
   coord_cartesian(xlim = c(9000, 10000)) +
@@ -264,7 +264,10 @@ traceplot(sim_fit,
 traceplot(sim_fit, "uv", inc_warmup=TRUE) +
   coord_cartesian(xlim = c(1, 50))
 
-pairs(sim_fit, pars = c("Omega", "alpha", "beta", "sigma_uv", "rho_uv", "lp__"))
+pairs(sim_fit, pars = c("a1_species_occ",
+                        "a1_site_occ",
+                        "alpha", "beta",
+                        "sigma_uv", "rho_uv"))
 
 
 
@@ -313,42 +316,72 @@ detections_heatmap_plot <-
 
 plot(detections_heatmap_plot)
 
-site_unit_covars <- data.frame(site_cov1 = rep(0:1, each = n_sites/2)) # could try updating with categorical covariate
+site_unit_covars <- data.frame(site_cov1 = rep(0:1, each = J/2)) # could try updating with categorical covariate
 # just keep the one cov1 for now
 site_cov1 <- site_unit_covars$site_cov1
 
-num_high_occurrence_species <- 20
-species_unit_covars <- data.frame(species_cov1 = rep(c(0, 1), 
-                                                     times = c(n_species-num_high_occurrence_species, num_high_occurrence_species)))
+num_high_occurrence_species <- 6
+species_unit_covars <- data.frame(species_cov1 = rep(c(1, 0), 
+                                                     times = c(num_high_occurrence_species, n-num_high_occurrence_species)))
 
 # just keep the one cov1 for now
 species_cov1 <- species_unit_covars$species_cov1
 
-x <- x_csv
-n <- nrow(x) # 15 species detected (but there are maybe more available)
+X <- x_csv
+N <- nrow(x) # 15 species detected (but there are maybe more available)
 J <- ncol(x)
 K <- 6
 S <- 30
-species_cov1 <- real_species_cov1
-site_cov1 <- real_site_cov1
+species_cov1 <- species_cov1
+site_cov1 <- site_cov1
 
-my_dat <- c("x", "n", "J", "K", "S")
+my_dat <- c("X", "N", "J", "K", "S", "species_cov1", "site_cov1")
 
-stan_model <- stan_model("./multispecies_occupancy_with_covariate.stan")
+stan_model <- stan_model("./multispecies_occupancy_with_covariate_species_and_site.stan")
 
 # keep iter and chains small just for purposes of making sure the model runs
-fit4 <- sampling(stan_model, data = my_dat, 
-                 iter = 10000, chains = 4)
+n_iter <- 12000
+n_chains <- 4
+n_cores <- 4
+sim_fit <- sampling(stan_model, data = my_dat, 
+                    iter = n_iter, warmup = n_iter*0.6, 
+                    chains = n_chains, cores = n_cores, 
+                    control=list(adapt_delta=0.975))
 
 options(width="120")
-print(fit4, c("alpha", "beta", "Omega", "sigma_uv", "rho_uv", "E_N_2", 
-              "uv[6,1]", "uv[6,2]", "uv[10,1]", "uv[10,2]",
-              "lp__"))
+print(sim_fit, c("a1_species_occ",
+                 "a1_site_occ",
+                 "alpha", "beta",
+                 "sigma_uv", "rho_uv", 
+                 "lp__"))
+#"uv[1,1]", "uv[1,2]", "uv[25,1]", "uv[25,2]"))
+# alpha should be 1.25
+# beta should be -1.75
+# Omega should be 0.6
+# sigma_uv[1] (species variance in occupancy) should be 1.0
+# sigma_uv[2] (species variance in detection) should be 1.25
+# rho_uv - this is where I'm getting thrown off and having a hard time in 
+# simulating the data (causing differences in my simulated dataset versus butterflies ex)
+# It should be the case that more abundant species (by occupancy)
+# should correspondingly be easier to detect
+# E_N_2 should be 40 - the number of species simulated as "available"
+launch_shinystan(sim_fit)
 
-traceplot(fit4,
-          c("Omega", "alpha", "beta", "sigma_uv", "rho_uv",
-            "uv[6,1]", "uv[6,2]", "uv[10,1]", "uv[10,2]",
+traceplot(sim_fit,
+          c("a1_species_occ",
+            "a1_site_occ",
+            "alpha", "beta",
+            "sigma_uv", "rho_uv", 
+            "uv[1,1]", "uv[1,2]", "uv[10,1]", "uv[10,2]",
             "lp__"),
           inc_warmup=FALSE) +
-  coord_cartesian(xlim = c(8000, 9000)) +
-  scale_x_continuous(breaks=c(8000, 8500, 9000))
+  coord_cartesian(xlim = c(9000, 10000)) +
+  scale_x_continuous(breaks=c(9000, 9500, 10000))
+
+traceplot(sim_fit, "uv", inc_warmup=TRUE) +
+  coord_cartesian(xlim = c(1, 50))
+
+pairs(sim_fit, pars = c("a1_species_occ",
+                        "a1_site_occ",
+                        "alpha", "beta",
+                        "sigma_uv", "rho_uv"))

@@ -54,9 +54,8 @@ parameters {
   real<lower=-1,upper=1> rho_uv;  // correlation of (occupancy, detection)
   vector<lower=0>[2] sigma_uv;    // sd of (occupancy, detection)
   
-  vector[2] ab[J];                // site-level (occupancy, detection)
-  real<lower=-1,upper=1> rho_ab;  // correlation of (occupancy, detection)
-  vector<lower=0>[2] sigma_ab;    // sd of (occupancy, detection)
+  real alpha; // site-level (occupancy)
+  real beta;  // site-level (detection)
 
 }
 
@@ -66,13 +65,13 @@ transformed parameters {
   
   for (i in 1:N){     // loop across all species
       for (j in 1:J){    // loop across all sites
-        logit_psi[i, j] = (uv[i, 1] + a1_species_occ * species_cov1[i]) + (ab[j, 1] + a1_site_occ * site_cov1[j]);
+        logit_psi[i, j] = (uv[i, 1] + a1_species_occ * species_cov1[i]) + (alpha + a1_site_occ * site_cov1[j]);
       }
   }
   
   for (i in 1:N) {   // loop across all species
     for (j in 1:J) {     // loop across all sites
-          logit_theta[i, j] = (uv[i, 2]) + (ab[j, 2]); // no detection covariates
+          logit_theta[i, j] = (uv[i, 2]) + (beta); // no detection covariates
     }
   }
   
@@ -87,9 +86,8 @@ model {
   (rho_uv + 1) / 2 ~ beta(2, 2);
   uv ~ multi_normal(rep_vector(0, 2), cov_matrix_2d(sigma_uv, rho_uv));
   
-  sigma_ab ~ cauchy(0, 2.5);
-  (rho_ab + 1) / 2 ~ beta(2, 2);
-  ab ~ multi_normal(rep_vector(0, 2), cov_matrix_2d(sigma_ab, rho_ab));
+  alpha ~ cauchy(0, 2.5);
+  beta ~ cauchy(0, 2.5);
   
   // likelihood
   // Stan can sample mean and sd of parameters by summing out the
