@@ -20,19 +20,18 @@ n_species <- 80 # total number of species in the supercommunity
 n_sites <- 40 # number of sites
 n_surveys <- 12 # number of visits
 
+# inv logit transformation function
+ilogit <- function(u) { return(1 / (1 + exp(-u))); }
+
 ## specify site-level occupancy and detection params
 # here the sites are considered exchangeable and considered to share a single parameter
 # for site-level occupancy and site-level detection
 alpha <- -1 #  site-level occupancy (logit scaled)
 beta <- -1.5 #  site-level detection (logit scaled)
 
-# inv logit transformation function
-ilogit <- function(u) { return(1 / (1 + exp(-u))); }
-
 # inv logit transformation function to view transformed values
 transformed_alpha <- ilogit(alpha) # site-level occupancy 
 transformed_beta <- ilogit(beta) # site-level detection 
-
 
 ## generate covariate values
 # site_cov1 is treatment group (0 = restored habitat; 1 = not restored habitat)
@@ -45,39 +44,6 @@ a1_site_occ <- 1.5 # slope of site covariate on site-level occupancy effect
 # unit_covars <- data.frame(cov1 = rnorm(n_sites)) # this is a continuous covariate (like flower abundance e.g.)
 
 # (here the sites are considered exchangeable and considered to share a single parameter) that determine species occupancy and detectability.
-# if wanted to, could make sites non-exchangeable
-#alpha_sigma <- .25 # small / negligible variation in site intercepts (occupancy)
-#beta_sigma <- .25 # small / negligible variation in site intercepts (detection)
-#rho_ab <- 0 # uncorrelated
-
-## Simulate site-level occupancy and detection if you want them to 
-# be non-equivalent
-# vector to fill with occurrence and detection rates (site-level)
-# ab <- matrix(NA, nrow = n_sites, ncol = 2)
-
-mu_ab <- c(alpha, beta)
-
-sigma_ab <- matrix(NA, nrow = 2, ncol = 2)
-sigma_ab[1,1] = (alpha_sigma)^2
-sigma_ab[2,2] = (beta_sigma)^2
-sigma_ab[1,2] = alpha_sigma * beta_sigma * rho_ab
-sigma_ab[2,1] = alpha_sigma * beta_sigma * rho_ab
-
-ab <- MASS::mvrnorm(n = n_sites, mu = mu_ab, Sigma = sigma_ab, empirical = FALSE)
-ab
-(rho_ab_simmed <- cor(ab[,1], ab[,2])) # correlation of site occupancy and detection
-
-
-# visualize site parameters
-hist(ab[,1], xlim = c(-3,3))
-hist(ab[,2], xlim = c(-3,0))
-# don't want to create any strong correlation between 
-# site occupancy and detection effects
-plot(ab[,2] ~ ab[,1])
-lm1 <- lm(ab[,2] ~ ab[,1])
-abline(lm1) 
-rho_ab_simmed <- cor(ab[,1], ab[,2]) # correlation of species occupancy and detection
-
 
 ## simulate species-level parameters
 # cov1 is treatment group (0 = restored habitat; 1 = not restored habitat)
@@ -210,31 +176,32 @@ species_cov1 <- species_cov1
 site_cov1 <- site_cov1
 
 my_dat <- c("X", "N", "J", "K", "species_cov1", "site_cov1")
+
 param_names <- c("a1_species_occ",
+                 "alpha", "beta",
                 "a1_site_occ",
-                "alpha", "beta",
                 "var sp occ", "var sp det", "rho_uv")
 parameters <- c(a1_species_occ,
                 a1_site_occ,
                 alpha, beta,
-                sigma_u, sigma_v, rho_uv_simmed)
+                sigma_u, sigma_v, rho_uv)
 targets <- as.data.frame(cbind(param_names, parameters))
 
 stan_model <- stan_model("./multispecies_occupancy_with_covariate_species_and_site.stan")
 
 # keep iter and chains small just for purposes of making sure the model runs
-n_iter <- 10000
+n_iter <- 5000
 n_chains <- 4
 n_cores <- 4
 sim_fit <- sampling(stan_model, data = my_dat, 
-                    iter = n_iter, warmup = n_iter*0.6, 
+                    iter = n_iter, warmup = n_iter*0.5, 
                     chains = n_chains, cores = n_cores, 
-                    control=list(adapt_delta=0.975))
+                    control=list(adapt_delta=0.95))
 
 options(width="120")
 print(sim_fit, c("a1_species_occ",
                   "a1_site_occ",
-                  "alpha", "beta",
+                 "alpha", "beta",
                   "sigma_uv", "rho_uv", 
                   "lp__"))
 #"uv[1,1]", "uv[1,2]", "uv[25,1]", "uv[25,2]"))
@@ -255,7 +222,7 @@ traceplot(sim_fit,
             "a1_site_occ",
             "alpha", "beta",
             "sigma_uv", "rho_uv", 
-            "uv[20,1]", "uv[20,2]", "uv[53,1]", "uv[53,2]",
+            "uv[1,1]", "uv[1,2]", "uv[78,1]", "uv[78,2]",
             "lp__"),
           inc_warmup=FALSE) +
   coord_cartesian(xlim = c(9000, 10000)) +
@@ -268,6 +235,77 @@ pairs(sim_fit, pars = c("a1_species_occ",
                         "a1_site_occ",
                         "alpha", "beta",
                         "sigma_uv", "rho_uv"))
+
+### Prior predictive checking
+# example for one prior
+# Let's do b, we think it's normally distributed so we need to define mean (mu) and variation (sigma)
+mub <- 0 # mean (mu), I start with what seemed okay above
+sigmab <- 2.5
+
+# Step 1 -- always plot the basic histogram first!
+hist(rcauchy(1000, mub, sigmab), xlim = c(-100, 100), breaks = 1000)
+
+### Posterior predictive checking
+# again taken from Bob Carpenter's example
+
+# make a scatterplot of the posterior means for the estimates of the 
+# psi and theta parameters for the observed species
+# (essentially allowing us to estimate our real data?)
+logit_theta_sims <- extract(sim_fit)$logit_theta;
+logit_psi_sims <- extract(sim_fit)$logit_psi;
+occurrence_hat <- c();
+detection_hat <- c();
+
+for (i in 1:N) {
+  occurrence_hat[i] <- mean(logit_psi_sims[,i,]);
+  detection_hat[i] <- mean(logit_theta_sims[,i,]);
+}
+
+df_psi_theta_fit <-
+  data.frame(occurrence_hat, detection_hat);
+
+psi_theta_hat_scatter_plot <-
+  ggplot(df_psi_theta_fit, aes(x=occurrence_hat, y=detection_hat)) +
+  geom_vline(xintercept=0, colour="gray") +
+  geom_hline(yintercept=0, colour="gray") +
+  geom_point(size=1.5, color = "red") +
+  scale_x_continuous(name="occurrence log odds",
+                     limits=c(-8,8), breaks=2*(-4:4)) +
+  scale_y_continuous(name="detection log odds",
+                     limits=c(-8,8), breaks=2*(-4:4)) +
+  ggtitle("Posterior Means: Species Occurrence (psi) and Detection (theta)");
+
+plot(psi_theta_hat_scatter_plot);
+
+# the actual fitted posterior means for the occupancy and detection parameters can be 
+# compared to a posterior simulation of a new species given the prior on (u,v)
+# to perform an informal posterior predictive check. 
+# Only 500 random draws from the total of 10,000 drawn are shown
+df_psi_theta_sim <-
+  data.frame(occurrence = extract(sim_fit)$logit_psi_sim,
+             detection= extract(sim_fit)$logit_theta_sim);
+
+df_psi_theta_sim <- tail(df_psi_theta_sim, 500);
+
+num_high_occurrence_species <- 30
+species_unit_covars <- data.frame(species_cov1 = rep(c(0, 1), 
+                                                     times = c(n_species-num_high_occurrence_species, num_high_occurrence_species)))
+
+
+psi_theta_sim_scatter_plot <-
+  ggplot(df_psi_theta_sim, aes(x=occurrence, y=detection)) +
+  geom_vline(xintercept=0, colour="gray") +
+  geom_hline(yintercept=0, colour="gray") +
+  geom_point(size=1.5) +
+  geom_point(data = df_psi_theta_fit, 
+             mapping = aes(x=occurrence_hat, y=detection_hat), color = "red") +
+  scale_x_continuous(name="occurrence log odds",
+                     limits=c(-8,8), breaks=2*(-4:4)) +
+  scale_y_continuous(name="detection log odds",
+                     limits=c(-8,8), breaks=2*(-4:4)) +
+  ggtitle("Posterior Predictive: Species Occurrence (psi) and Detection (theta)");
+
+plot(psi_theta_sim_scatter_plot);
 
 
 

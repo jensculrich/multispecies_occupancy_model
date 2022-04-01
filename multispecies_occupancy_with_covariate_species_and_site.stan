@@ -1,12 +1,17 @@
 // multi-species occupancy model
-// This Stan program defines a model for occupancy
+// This Stan program defines an occupancy model for 
 // a community of species using detection data from
 // J sites visited on K surveys
+// The model has a hierarchical sturcture with species occupancy and detection
+// rates linked through shared distributions and defined by a covariance matrix.
+// The model also fits parameters for the effect of species type and site type on 
+// occupancy rates (but currently no covariates for detection rates)
 
-// adapted from model for butterfly occupancy written by Bob Carpenter, here:
+// This model draws structure from the butterfly occupancy model written by Bob Carpenter, here:
 // https://mc-stan.org/users/documentation/case-studies/dorazio-royle-occupancy.html
 
 functions {
+  
   matrix cov_matrix_2d(vector sigma, real rho) {
     matrix[2,2] Sigma;
     Sigma[1,1] = square(sigma[1]);
@@ -20,12 +25,12 @@ functions {
     // if species i is observed at site j:
     return log_inv_logit(logit_psi)
       // where logit_psi[i] = (uv[i, 1] + a1_species_occ * species_cov1[i]) + 
-                                // (ab[j, 1] + a1_site_occ * site_cov1[j])
+                                // (a1_site_occ * site_cov1[j])
       + binomial_logit_lpmf(X | K, logit_theta); 
       // The log binomial probability mass of x successes (observed)
       // in K trials (survey revisits) given the
       // logit-scaled chance of success logit_theta (detection prob)
-      // where logit_theta[i] = uv[i, 2] + beta
+      // where logit_theta[i] = uv[i, 2]
   }
 
   real lp_unobserved(int K, real logit_psi, real logit_theta) {
@@ -37,7 +42,9 @@ functions {
   }
 
 }
+
 data {
+  
   int<lower=1> J;  // sites within region
   int<lower=1> K;  // visits to sites
   int<lower=1> N;  // observed species
@@ -46,7 +53,9 @@ data {
   real site_cov1[J]; // unit covariate 1
 
 }
+
 parameters {
+  
   real a1_species_occ;  // species-level occupancy effect (specialization - factor)
   real a1_site_occ;     // site-level occupancy effect (site treatment)
   
@@ -60,18 +69,23 @@ parameters {
 }
 
 transformed parameters {
+  
   real logit_psi[N, J];  // log odds  of occurrence
   real logit_theta[N, J];  // log odds of detection
   
   for (i in 1:N){     // loop across all species
       for (j in 1:J){    // loop across all sites
-        logit_psi[i, j] = (uv[i, 1] + a1_species_occ * species_cov1[i]) + (alpha + a1_site_occ * site_cov1[j]);
+        logit_psi[i, j] = alpha + // grand mean intercept
+        uv[i, 1] + // species-level effect on the intercept
+        a1_species_occ * species_cov1[i] + // effect of species category on occupancy
+        a1_site_occ * site_cov1[j]; // effect of site category on occupancy
       }
   }
   
   for (i in 1:N) {   // loop across all species
     for (j in 1:J) {     // loop across all sites
-          logit_theta[i, j] = (uv[i, 2]) + (beta); // no detection covariates
+          logit_theta[i, j] = beta + // grand mean intercept
+          uv[i, 2]; // species-level effect on the intercept
     }
   }
   
@@ -101,5 +115,31 @@ model {
         target += lp_unobserved(K, logit_psi[i, j], logit_theta[i, j]); 
     }
   }
+  
+}
+
+generated quantities {
+  
+  //  a set of simulated (u,v) pairs for a new species, 
+  // along with the logit-scaled psi and theta variables. 
+  // These are used for posterior predictive checking to see if the 
+  // actual species are distributed as characterized by their prior.
+  vector[2] sim_uv;
+  real logit_psi_sim;
+  real logit_theta_sim;
+  real sim_species_category;
+  real sim_site_category;
+
+  sim_uv = multi_normal_rng(rep_vector(0,2),
+                             cov_matrix_2d(sigma_uv, rho_uv));
+                             
+  sim_species_category = bernoulli_rng(0.5);
+  sim_site_category = bernoulli_rng(0.5);
+                     
+  logit_psi_sim = alpha + sim_uv[1] + // grand mean intercept
+        a1_species_occ * sim_species_category + // effect of species category on occupancy
+        a1_site_occ * sim_site_category;
+        
+  logit_theta_sim = beta + sim_uv[2];
   
 }
