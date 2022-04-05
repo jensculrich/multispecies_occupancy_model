@@ -246,7 +246,7 @@ sigmab <- 2.5
 hist(rcauchy(1000, mub, sigmab), xlim = c(-100, 100), breaks = 1000)
 
 ### Posterior predictive checking
-# again taken from Bob Carpenter's example
+# again modified from Bob Carpenter's example
 
 # make a scatterplot of the posterior means for the estimates of the 
 # psi and theta parameters for the observed species
