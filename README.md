@@ -1,4 +1,4 @@
-# multispecies_occpuancy_model
+# multispecies_occupancy_model
 
 ### To simulate some occupancy data and fit a single species occupancy model
 - navigate to the "./single_species_occupancy_model" folder.
