@@ -3,15 +3,22 @@
 
 data {
   int<lower=1> n_sites;  // number of study sites
+  int site[n_sites];
   int<lower=1> n_surveys;  // number of visits to each site
-  int<lower=0, upper=n_surveys> detections[n_sites];  
-  // 'detections' is a vector containing number of successful detections 
+  int<lower=1> n_species;
+  int species[n_species];
+  int<lower=0, upper=n_surveys> detections[n_sites, n_species];  
+  // 'detections' is an array containing number of successful detections 
   // out of n_surveys maximum detections for each site
 } // end data block
 
 parameters { 
-  real alpha; // site-level occupancy rate
-  real beta;  // site-level detection rate
+  vector[n_species] alpha; // site-level occupancy rate
+  real alpha0;
+  real<lower=0> sigma_alpha;
+  vector[n_species] beta;  // site-level detection rate
+  real beta0;
+  real<lower=0> sigma_beta;
 } // end parameters block
 
 transformed parameters {
@@ -21,37 +28,44 @@ transformed parameters {
   
   // define expected occurrence and detection rates given site predictors
   // right now there are no predictors so expected rates are equal to the intercept terms
-  real logit_psi[n_sites];  // log odds  of occurrence
-  real logit_p[n_sites];  // log odds of detection
+  real logit_psi[n_sites, n_species];  // log odds  of occurrence
+  real logit_p[n_sites, n_species];  // log odds of detection
   
   // occurrence predictors on a logit scale
-  for (i in 1:n_sites){     // loop across all species
-    logit_psi[i] = alpha// grand mean intercept
-    // add predictors of interest here if you want to do more than estimate an intercept!
-    ; // end linear predictor for occurrence
-  } // end for loop across sites
-  // detection predictors on a logit scale
-  for (i in 1:n_sites) {   // loop across all species
-    logit_p[i] = beta // grand mean intercept
-    // add predictors of interest here if you want to do more than estimate an intercept!
-    ; // end linear predictor for detection
+  for (i in 1:n_sites){     // loop across all data points
+    for(j in 1:n_species){
+        logit_psi[i,j] = alpha[species[j]] // grand mean intercept
+        // add predictors of interest here if you want to do more than estimate an intercept!
+        ; // end linear predictor for occurrence
+        logit_p[i,j] = beta[species[j]] // grand mean intercept
+        // add predictors of interest here if you want to do more than estimate an intercept!
+        ; // end linear predictor for detection
+    }
   } // end for loop across sites
 } // end transformed parameters block
 
 model {
+  
   // PRIORS
-  alpha ~ normal(0, 2); // weakly informative prior
-  beta ~ normal(0, 2); // weakly informative prior
+  alpha ~ normal(alpha0, sigma_alpha); // weakly informative prior
+  alpha0 ~ normal(0, 2);
+  sigma_alpha ~ normal(0, 2);
+  beta ~ normal(beta0, sigma_beta); // weakly informative prior
+  beta0 ~ normal(0, 2);
+  sigma_beta ~ normal(0, 2);
+  
   // LIKELIHOOD
   for (i in 1:n_sites) { // loop across all sites
+    for (j in 1:n_species) {
+          
     // if species is detected at the specific site at least once
     // then the species occurs there. lp_observed calculates
     // the probability density that species occurs given psi, plus the 
     // probability density that we successfully observed it on detections[i]/n_surveys
-    if(detections[i] > 0) {
+    if(detections[i,j] > 0) {
        // lp_observed:
-       target += log_inv_logit(logit_psi[i]) +
-                binomial_logit_lpmf(detections[i] | n_surveys, logit_p[i]);
+       target += log_inv_logit(logit_psi[i,j]) +
+                binomial_logit_lpmf(detections[i,j] | n_surveys, logit_p[i,j]);
     // else the species was never detected at the site
     } else {
        // Stan can sample the mean and sd of parameters by summing out the
@@ -61,10 +75,12 @@ model {
       // 2) the species does not occupy the site
       target += 
               // present but never detected
-              log_sum_exp(log_inv_logit(logit_psi[i]) +
-              binomial_logit_lpmf(0 | n_surveys, logit_p[i]),
+              log_sum_exp(log_inv_logit(logit_psi[i,j]) +
+              binomial_logit_lpmf(0 | n_surveys, logit_p[i,j]),
               // not present
-              log1m_inv_logit(logit_psi[i])); 
+              log1m_inv_logit(logit_psi[i,j])); 
     } // end if/else ever observed
+    
+    } // end loop across species
   } // end for loop across sites
 } // end model block

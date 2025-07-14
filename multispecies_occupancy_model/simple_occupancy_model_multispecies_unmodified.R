@@ -2,14 +2,17 @@
 ## Jens Ulrich, Feb 2025
 
 library(rstan)
+library(reshape2)
+library(tidyverse)
 
 ###-----------------------------------------------------------------------------
 ### simulate some test data
 
-set.seed <- 1
-
 ## Define study dimensions 
-n_sites <- 100 # number of sites
+n_sites <- 50 # number of sites
+site <- seq(1:n_sites)
+n_species <- 30
+species <- seq(1:n_species)
 n_surveys <- 5 # number of repeated visits to each site
 
 # inv logit transformation function
@@ -18,76 +21,97 @@ ilogit <- function(u) { return(1 / (1 + exp(-u))); }
 ## specify site-level occupancy and detection params
 # here the sites are considered exchangeable and considered to share a single parameter
 # for site-level occupancy and site-level detection
-alpha <- 0 #  site-level occupancy rate (logit scaled)
-beta <- -1 #  site-level detection rate (logit scaled)
+alpha0 <- 0 #  site-level occupancy rate (logit scaled)
+sigma_alpha <- 1.5 # variance among species
+beta0 <- -1 #  site-level detection rate (logit scaled)
+sigma_beta <- 0.75 # variance among species
 
-# inv logit transformation function to view transformed values (percent odds of occurence or detection)
-transformed_alpha <- ilogit(alpha) # site-level occupancy 
-transformed_beta <- ilogit(beta) # site-level detection 
+# now create species specific intercepts
+alpha <- rnorm(n_species, alpha0, sigma_alpha)
+beta <- rnorm(n_species, beta0, sigma_beta)
 
 # (here the sites are considered exchangeable and considered to share a single parameter) 
 # that determines species occupancy and a single param that determines species detectability.
 # one could change these things by adding predictor terms to psi and p 
 
 # occupancy linear predictor
-psi <- alpha # add params here if you'd like more than just an intercept!
+#psi <- alpha # add params here if you'd like more than just an intercept!
 # e.g. 
-# psi <- vector(length = n_sites)
-# for(i in 1:n_sites){psi[i] <- alpha + alpha1*covariate1[i]} 
+psi <- array(dim = c(n_sites, n_species))
+for(i in 1:n_sites){
+  for(j in 1:n_species){
+    psi[i,j] <- alpha[j]
+  }
+}  
 
 # detection linear predictor
-p <- beta # add params here if you'd like more than just an intercept!
+#p <- beta # add params here if you'd like more than just an intercept!
 # e.g. 
-# p <- vector(length = n_sites)
-# for(i in 1:n_sites){p[i] <- beta + beta1*covariate1[i]} 
+p <- array(dim = c(n_sites, n_species))
+for(i in 1:n_sites){
+  for(j in 1:n_species){
+    p[i,j] <- beta[j]
+  }
+} 
 
 ## First simulation step is to simulate if the sites are occupied,
-Z <- matrix(NA, nrow = n_sites)
+Z <- array(NA, dim = c(n_sites, n_species))
 
 for(i in 1:n_sites){ # loop across sites
-    Z[i] <- rbinom(1, 1, ilogit(psi)) # 
+  for(j in 1:n_species){
+    Z[i,j] <- rbinom(1, 1, ilogit(psi[i,j])) # 
     # simulate occupancy states
     # for each site j, draw occupancy from a binomial dist with prob 
+  }
 }
 
 ## and then simulate detections on surveys of each site (given simulated occupancy)
-det_data_array <- array(NA, c(n_sites, n_surveys))
+det_data_array <- array(NA, dim = c(n_sites, n_species, n_surveys))
 
 for(i in 1:n_sites){ # loop across sites
-    for(j in 1:n_surveys){ # for each site loop across surveys
-      det_data_array[i, j] <- Z[i] * rbinom(1, 1, ilogit(p)) 
+  for(j in 1:n_species){
+    for(k in 1:n_surveys){ # for each site loop across surveys
+      det_data_array[i,j,k] <- Z[i,j] * rbinom(1, 1, ilogit(p[i,j])) 
       # multiply by the occupancy state so that you can never detect species
       # if it is not present at the site
       # only take 1 rbinom draw per survey
     } 
+  }
 }
 
 # Now add the values in the  array to get a single vector of summed detections
 # i.e., across all surveys to a site, how many successfully detected the species?
-det_data_vector <- vector(length = n_sites)
+det_data <- array(NA, dim = c(n_sites, n_species))
 
 for(i in 1:n_sites){ # loop across all sites
-  det_data_vector[i] <- sum(det_data_array[i, 1:n_surveys]) # and sum the detections
+  for(j in 1:n_species){
+    det_data[i,j] <- sum(det_data_array[i, j, 1:n_surveys]) # and sum the detections
+  }
 }
 
 ###-----------------------------------------------------------------------------
 ### Run the model
 
 # prepare the data to feed to the model
-detections <- det_data_vector # detection data
+detections <- det_data # detection data
 n_sites <- n_sites # number of sites 
+species <- species
+site <- site
 n_surveys <- n_surveys # number of surveys
-
-my_data <- c("detections", "n_sites", "n_surveys") # data
+my_data <- c("detections", "site", "n_sites", "species", "n_species", "n_surveys") # data
 # params to monitor
-param_names <- c("alpha", "beta") 
+param_names <- c("alpha0", "sigma_alpha",
+                 "beta0", "sigma_beta",
+                 "alpha", "beta") 
 
 # 'targets' allows you to later check agreement between model estimates and the true param values
-parameters <- c(alpha, beta) # true values used to simulate the data
+parameters <- c(alpha0,  sigma_alpha,
+                beta0, sigma_beta,
+                NA, NA) # true values used to simulate the data
 targets <- as.data.frame(cbind(param_names, parameters)) 
 
 # load the stan model
-stan_model <- "./single_species_occupancy_model/simple_occupancy_model.stan"
+stan_model <- "./multispecies_occupancy_model/simple_occupancy_model_multispecies.stan"
 
 # specify model run time and number of chains
 params = param_names
@@ -96,23 +120,24 @@ n_chains <- 4
 n_cores <- 4
 
 # fit the model
-sim_fit <- stan(stan_model, # address of model
-                    data = my_data, # data to give to stan
-                    pars = params, # names of params to track
-                    iter = n_iter, # length of the model run
-                    warmup = n_iter*0.5, # discard the beginning
-                    chains = n_chains, # number of chains
-                    cores = n_cores # number of cores on the computer 
-                    )
+sim_fit <- stan(stan_model, data = my_data, 
+                    pars = params,
+                    iter = n_iter, warmup = n_iter*0.5, 
+                    chains = n_chains, cores = n_cores)
 
 # view outputs and some simple model fitting diagnostics
 options(width="120")
 
-print(sim_fit, c("alpha", "beta"))
+print(sim_fit, c("alpha0", "sigma_alpha",
+                 "beta0", "sigma_beta") )
 
-traceplot(sim_fit, c("alpha", "beta")) 
+print(sim_fit, c("alpha"))
 
-pairs(sim_fit, pars = c("alpha", "beta"))
+traceplot(sim_fit, c("alpha0", "sigma_alpha",
+                     "beta0", "sigma_beta") ) 
+
+pairs(sim_fit, pars = c("alpha0", "sigma_alpha",
+                        "beta0", "sigma_beta"))
 
 ###-----------------------------------------------------------------------------
 ### Compare parameter estimates to parameter targets
