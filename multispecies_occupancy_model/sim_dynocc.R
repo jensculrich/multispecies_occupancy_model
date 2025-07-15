@@ -14,13 +14,13 @@ simulate_data <- function(n_sites,
                           n_years_minus1,
                           years,
                           years_minus1,
-                          psi1,
+                          psi1_0,
                           sigma_psi1_species,
-                          gamma,
+                          gamma0,
                           sigma_gamma_species,
-                          phi,
+                          phi0,
                           sigma_phi_species,
-                          p,
+                          p0,
                           sigma_p_species
 ){
   
@@ -62,7 +62,7 @@ simulate_data <- function(n_sites,
         for(l in 1:n_surveys){
           
           logit_p[i,j,k,l] = 
-            p +
+            p0 +
             p_species[i] 
         }
       }
@@ -80,15 +80,15 @@ simulate_data <- function(n_sites,
       for(k in 1:n_years_minus1){
         
         logit_psi1[i,j] = 
-          psi1 +
+          psi1_0 +
           psi1_species[i] 
         
         logit_gamma[i,j,k] = # gamma for transition (starting for between years 1 and 2)
-          gamma +
+          gamma0 +
           gamma_species[i] 
         
         logit_phi[i,j,k] = 
-          phi +
+          phi0 +
           phi_species[i]
         
       }

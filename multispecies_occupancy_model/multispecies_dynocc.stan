@@ -1,10 +1,4 @@
-// dynamic multi-species occupancy model for pollinators in urban parks
-// this is for the full iNat data
-// I'm using months as survey blocks and assuming all parks are surveyed in all months in all years
-// so long as one or more species from corresponding family was detected
-// I've included a month-phenology covariate for detection
-
-// I've also added park site and species trait predictors (contrast with model 3)
+// dynamic multi-species occupancy model 
 
 // jcu, started may, 2024.
 

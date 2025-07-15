@@ -1,3 +1,5 @@
+library(rstan)
+
 ###-----------------------------------------------------------------------------
 ### simulate some test data
 
@@ -68,7 +70,9 @@ params <- c("psi1_0",
             "sigma_phi_species",
             
             "p0", 
-            "sigma_p_species"
+            "sigma_p_species",
+            
+            "W_species_rep"
 )
 
 # MCMC settings
@@ -107,7 +111,9 @@ parameter_values <-  c(
   sigma_phi_species,
   
   p0, 
-  sigma_p_species
+  sigma_p_species,
+  
+  NA
   
 )
 
@@ -143,3 +149,20 @@ print(stan_out, digits = 3,
                "p0", 
                "sigma_p_species"
       ))
+
+print(stan_out, digits = 3, pars = "W_species_rep")
+
+traceplot(stan_out, 
+      pars = c("psi1_0", 
+               "sigma_psi1_species",
+               
+               "gamma0", 
+               "sigma_gamma_species",
+               
+               "phi0", 
+               "sigma_phi_species",
+               
+               "p0", 
+               "sigma_p_species"
+      ))
+
